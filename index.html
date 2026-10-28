@@ -33,7 +33,7 @@ button:disabled { opacity: .6; cursor: progress; }
 </form>
 <script>
 (() => {   // keep the loader's names private: the player is written into this same page and reuses some
-const SALT = "hs0fAjV32y7JwINGKo5PTQ==", ROUNDS = 600000;
+const SALT = "Pohk3/8MDBtr+6Yt4AWhvg==", ROUNDS = 600000;
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const msg = document.getElementById("msg"), go = document.getElementById("go"), pw = document.getElementById("pw");
 async function keyFor(p) {
