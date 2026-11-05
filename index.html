@@ -10,16 +10,33 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
        font: 16px/1.45 "Segoe UI", system-ui, sans-serif; padding: 24px max(16px, env(safe-area-inset-left, 0px)); }
-form { width: min(100%, 380px); background: var(--panel); border-radius: 12px; padding: 24px; display: grid; gap: 12px; }
-h1 { font-size: 22px; margin: 0; }
+body.menu { place-items: start center; }
+form, .wait { width: min(100%, 380px); background: var(--panel); border-radius: 12px; padding: 24px; display: grid; gap: 12px; }
+h1 { font-size: 22px; margin: 0; text-wrap: balance; }
 p { margin: 0; color: var(--dim); }
 label { font-size: 14px; color: var(--dim); }
 input { width: 100%; font: inherit; padding: 11px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
-input:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 button { font: inherit; font-weight: 600; padding: 11px; border-radius: 8px; border: 0; background: var(--amber); color: #111; cursor: pointer; }
 button:disabled { opacity: .6; cursor: progress; }
-#msg { min-height: 1.4em; font-size: 14px; }
-#msg.bad { color: var(--bad); }
+#msg, .wait .st { min-height: 1.4em; font-size: 14px; }
+#msg.bad, .wait .st.bad { color: var(--bad); }
+.pick { width: min(100%, 1180px); display: grid; gap: 16px; }
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.top h1 { flex: 1; min-width: 12ch; }
+.back { color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.back:hover { border-color: var(--amber); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.tile { display: grid; grid-template-rows: auto 1fr; background: var(--panel); border-radius: 12px; overflow: hidden; color: var(--text);
+        text-decoration: none; border: 1px solid transparent; touch-action: manipulation; }
+.tile:hover { border-color: var(--amber); }
+.tile img, .tile .ph { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.tile .ph { display: grid; place-items: center; background: #262b33; color: var(--dim); }
+.tile .ph svg { width: 72px; height: 72px; }
+.tile .tx { padding: 12px 14px 14px; display: grid; gap: 4px; align-content: start; }
+.tile b { font-size: 17px; line-height: 1.25; }
+.tile span { color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
+.tile.old .ph { color: var(--amber); }
 </style>
 </head>
 <body>
@@ -33,38 +50,112 @@ button:disabled { opacity: .6; cursor: progress; }
 </form>
 <script>
 (() => {   // keep the loader's names private: the player is written into this same page and reuses some
-const SALT = "yF5AYDgYAUIQ4btYHkL1PQ==", ROUNDS = 600000;
+const SALT = "Mpexe64a5qe34EETDkXZ7g==", ROUNDS = 600000;
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const msg = document.getElementById("msg"), go = document.getElementById("go"), pw = document.getElementById("pw");
+let KEY = null, MENU = null;
 async function keyFor(p) {
   const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(p), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({name: "PBKDF2", salt: b64(SALT), iterations: ROUNDS, hash: "SHA-256"}, base,
                                  {name: "AES-GCM", length: 256}, false, ["decrypt"]);
 }
-async function open_(key, buf) {
+async function open_(buf) {
   const b = new Uint8Array(buf);
-  return crypto.subtle.decrypt({name: "AES-GCM", iv: b.slice(0, 12)}, key, b.slice(12));
+  return crypto.subtle.decrypt({name: "AES-GCM", iv: b.slice(0, 12)}, KEY, b.slice(12));
+}
+async function get(url, onPart) {   // fetch with a progress callback (bytes so far, total or 0)
+  const r = await fetch(url, {cache: "no-cache"});
+  if (!r.ok) throw new Error(r.status);
+  const total = +r.headers.get("content-length") || 0;
+  if (!onPart || !r.body) return r.arrayBuffer();
+  const rd = r.body.getReader(), parts = [];
+  let got = 0;
+  for (;;) {
+    const {done, value} = await rd.read();
+    if (done) break;
+    parts.push(value); got += value.length; onPart(got, total);
+  }
+  return new Blob(parts).arrayBuffer();
 }
 async function unlock(p) {
   go.disabled = true; msg.className = ""; msg.textContent = "Checking\u2026";
-  let key, page;
   try {
-    key = await keyFor(p.trim());
-    page = new TextDecoder().decode(await open_(key, await (await fetch("p.bin", {cache: "no-cache"})).arrayBuffer()));
+    KEY = await keyFor(p.trim());
+    MENU = JSON.parse(new TextDecoder().decode(await open_(await get("m.bin"))));
   } catch (e) {
-    go.disabled = false; msg.className = "bad"; msg.textContent = "That password didn't work. Check it and try again.";
+    KEY = null; go.disabled = false; msg.className = "bad"; msg.textContent = "That password didn't work. Check it and try again.";
     try { sessionStorage.removeItem("pp"); } catch (_) {}
     return;
   }
   try { sessionStorage.setItem("pp", p.trim()); } catch (_) {}
-  msg.textContent = "Loading the video (about 5 MB)\u2026";
+  addEventListener("hashchange", route);
+  route();
+}
+const fmt = s => Math.floor(s / 60) + ":" + String(Math.round(s % 60)).padStart(2, "0");
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+const FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5h4l2 2.2h9A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+function tile(it) {
+  const a = el("a", "tile"); a.href = "#v=" + encodeURIComponent(it.id);
+  const img = el("img"); img.src = it.img; img.alt = ""; a.append(img);
+  const tx = el("div", "tx");
+  tx.append(el("b", "", it.title));
+  const bits = [fmt(it.secs), it.sf.toLocaleString() + " SF", it.areas + (it.areas === 1 ? " area" : " areas")];
+  if (it.note) bits.unshift(it.note);
+  tx.append(el("span", "", bits.join(" \u00b7 ")));
+  a.append(tx); return a;
+}
+function showMenu(group) {
+  document.body.className = "menu";
+  const box = el("div", "pick"), top = el("div", "top");
+  if (group === "old") { const b = el("a", "back", "\u2190 All areas"); b.href = "#"; top.append(b); }
+  top.append(el("h1", "", group === "old" ? "Old \u00b7 earlier drafts" : "Phasing plan \u00b7 pick an area"));
+  box.append(top);
+  const grid = el("div", "tiles");
+  MENU.items.filter(it => it.group === group).forEach(it => grid.append(tile(it)));
+  const olds = MENU.items.filter(it => it.group === "old");
+  if (group === "main" && olds.length) {
+    const a = el("a", "tile old"); a.href = "#old";
+    const ph = el("div", "ph"); ph.innerHTML = FOLDER; a.append(ph);
+    const tx = el("div", "tx"); tx.append(el("b", "", "Old"), el("span", "", olds.length + " earlier drafts"));
+    a.append(tx); grid.append(a);
+  }
+  box.append(grid);
+  document.body.replaceChildren(box);
+  scrollTo(0, 0);
+}
+async function play(id) {
+  const it = MENU.items.find(x => x.id === id);
+  if (!it) { location.hash = ""; return; }
+  const want = location.hash;
+  document.body.className = "";
+  const w = el("div", "wait"), st = el("div", "st");
+  const b = el("a", "back", "\u2190 Cancel"); b.href = it.group === "old" ? "#old" : "#";
+  w.append(el("h1", "", it.title), st, b);
+  st.setAttribute("role", "status");
+  document.body.replaceChildren(w);
+  st.textContent = `Loading the video (about ${it.mb} MB)\u2026`;
   try {
-    const vid = await open_(key, await (await fetch("v.bin", {cache: "no-cache"})).arrayBuffer());
+    const page = new TextDecoder().decode(await open_(await get("p_" + id + ".bin")));
+    const buf = await get("v_" + id + ".bin", (got, total) => {
+      st.textContent = total ? `Loading the video: ${Math.round(100 * got / total)}% of ${it.mb} MB\u2026`
+                             : `Loading the video: ${Math.round(got / 1e6)} of ${it.mb} MB\u2026`;
+    });
+    if (location.hash !== want) return;          // went back while it loaded
+    st.textContent = "Opening\u2026";
+    const vid = await open_(buf);
+    if (location.hash !== want) return;
     const url = URL.createObjectURL(new Blob([vid], {type: "video/mp4"}));
+    removeEventListener("hashchange", route);
     document.open(); document.write(page.replace("__VIDEO_URL__", url)); document.close();
   } catch (e) {
-    go.disabled = false; msg.className = "bad"; msg.textContent = "The video didn't load. Check your connection and try again.";
+    if (location.hash !== want) return;
+    st.className = "st bad"; st.textContent = "The video didn't load. Check your connection and try again.";
   }
+}
+function route() {
+  const h = decodeURIComponent(location.hash || "");
+  if (h.startsWith("#v=")) play(h.slice(3));
+  else showMenu(h === "#old" ? "old" : "main");
 }
 document.getElementById("f").addEventListener("submit", e => { e.preventDefault(); unlock(pw.value); });
 try { const s = sessionStorage.getItem("pp"); if (s) unlock(s); } catch (_) {}
