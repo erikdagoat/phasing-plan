@@ -50,7 +50,7 @@ button:disabled { opacity: .6; cursor: progress; }
 </form>
 <script>
 (() => {   // keep the loader's names private: the player is written into this same page and reuses some
-const SALT = "Mpexe64a5qe34EETDkXZ7g==", ROUNDS = 600000;
+const SALT = "HUtNZNt+Z4GIV5awGqNM9w==", ROUNDS = 600000;
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const msg = document.getElementById("msg"), go = document.getElementById("go"), pw = document.getElementById("pw");
 let KEY = null, MENU = null;
